@@ -1,4 +1,10 @@
+warning('off','all');
+
 v = VideoReader('0.mp4');
+
+%% index argument
+startingIndex = 1800 ;
+frameIndex = 74;
 
 totalNumberOfFrame = v.NumFrames;
 centerHeight = v.Height/2;
@@ -25,21 +31,52 @@ Fb = [1, 1, 1, 1, -1, 1, -1, 1, 1, -1, -1, 1, 1, -1];
 Fb = repmat(Fb, 6, 1);
 Fb = Fb(:)';
 
-filter = [1/7, 1/7, 1/7, 1/7, 1/7, 1/7, 1/7];
+% filter = [1/7, 1/7, 1/7, 1/7, 1/7, 1/7, 1/7];
 
 %% read frames
 % for i = 1 : totalNumberOfFrame
-frame = rgb2gray(read(v, 10)); % current selected frame : 10, correct delimiter : Fa
-% frame(selectedRow-3:selectedRow+3, 1:489) = 0;
+frame = rgb2gray(read(v, frameIndex));
 imshow(frame);
-centerRow = frame(selectedRow, :);
+
+fprintf("Frame index : %d\n", frameIndex);
+
+cluster = zeros(101, 1080);
+
+% apply k-means on selected rows
+for j = startingIndex : startingIndex+100
+    targetRow = double(frame(j, :)');  
+    receivedIndex = (kmeans(targetRow, 2, 'Replicates', 30) - 1)';
+    small = -1;
+    big = -1;
+    for k = 1 : 1080
+        if receivedIndex(k) == 0 && small == -1
+            small = frame(j, k);
+        end
+        if receivedIndex(k) == 1 && big == -1
+            big = frame(j, k);
+        end
+        if small ~= -1 && big ~= -1
+            break
+        end
+    end
+
+    if small > big
+        cluster(j-startingIndex+1, :) = 1 - receivedIndex; 
+    else
+        cluster(j-startingIndex+1, :) = receivedIndex;
+    end
+end
+
+majority = int8((sum(cluster, 1)/101) > 0.5);
+majority(majority == 0) = -1;
+% centerRow = majority;
 
 % preprocess with low pass filter
-centerRow = xcorr(centerRow, filter);
-centerRow = centerRow(v.Width-3:2*v.Width-4);
+% centerRow = xcorr(centerRow, filter);
+% centerRow = centerRow(v.Width-3:2*v.Width-4);
 
 % normalization
-normalizedInput = normalize(centerRow, 'range', [-1, 1]);
+% normalizedInput = normalize(centerRow, 'range', [-1, 1]);
 
 %% find max correlation delimeter
 delimeters = [Da, Db, Fa, Fb];
@@ -53,34 +90,48 @@ delimeterNames = ['Da', 'Db', 'Fa', 'Fb'];
 
 autoCorrelationValue = [];
 
-corrDoubleDa = (xcorr(normalizedInput, DoubleDa));
-corrDoubleDa = corrDoubleDa(length(normalizedInput): (2*length(normalizedInput)-length(DoubleDa)));
+corrDoubleDa = (xcorr(majority, DoubleDa));
+corrDoubleDa = corrDoubleDa(length(majority): (2*length(majority)-1));
 [maxDoubleDa, pixelIndex] = max(corrDoubleDa);
 fprintf("max correlation value for DoubleDa = %f, pixel index = %d to %d\n", maxDoubleDa, pixelIndex, pixelIndex+length(DoubleDa)-1);
 autoCorrelationValue(end+1) = maxDoubleDa;
 
-corrDa = (xcorr(normalizedInput, Da));
-corrDa = corrDa(length(normalizedInput): (2*length(normalizedInput)-length(Da)));
+corrDa = (xcorr(majority, Da));
+corrDa = corrDa(length(majority): (2*length(majority)-length(Da)));
 [maxDa, pixelIndex] = max(corrDa);
 fprintf("max correlation value for Da = %f, pixel index = %d to %d\n", maxDa, pixelIndex, pixelIndex+length(Da)-1);
 autoCorrelationValue(end+1) = maxDa;
 
-corrDb = (xcorr(normalizedInput, Db));
-corrDb = corrDb(length(normalizedInput): (2*length(normalizedInput)-length(Db)));
+corrDb = (xcorr(majority, Db));
+corrDb = corrDb(length(majority): (2*length(majority)-length(Db)));
 [maxDb, pixelIndex] = max(corrDb);
 fprintf("max correlation value for Db = %f, pixel index = %d to %d\n", maxDb, pixelIndex, pixelIndex+length(Db)-1);
 autoCorrelationValue(end+1) = maxDb;
 
-corrFa = (xcorr(normalizedInput, Fa));
-corrFa = corrFa(length(normalizedInput): (2*length(normalizedInput)-length(Fa)));
+corrFa = (xcorr(majority, Fa));
+corrFa = corrFa(length(majority): (2*length(majority)-length(Fa)));
 [maxFa, pixelIndex] = max(corrFa);
 fprintf("max correlation value for Fa = %f, pixel index = %d to %d\n", maxFa, pixelIndex, pixelIndex+length(Fa)-1);
 autoCorrelationValue(end+1) = maxFa;
 
-corrFb = (xcorr(normalizedInput, Fb));
-corrFb = corrFb(length(normalizedInput): (2*length(normalizedInput)-length(Fb)));
+corrFb = (xcorr(majority, Fb));
+corrFb = corrFb(length(majority): (2*length(majority)-length(Fb)));
 [maxFb, pixelIndex] = max(corrFb);
 fprintf("max correlation value for Fb = %f, pixel index = %d to %d\n", maxFb, pixelIndex, pixelIndex+length(Fb)-1);
 autoCorrelationValue(end+1) = maxFb;
-    
+
+maxDelimiter = max([maxDa, maxDb, maxFa, maxFb]);
+
+if maxDoubleDa >= 100
+    fprintf("delimiter : DaDa\n");
+elseif maxDelimiter == maxDa
+    fprintf("delimiter : Da\n");
+elseif maxDelimiter == maxDb
+    fprintf("delimiter : Db\n");
+elseif maxDelimiter == maxFa
+    fprintf("delimiter : Fa\n");
+elseif maxDelimiter == maxFb
+    fprintf("delimiter :Fb\n");
+end
+
 % end
